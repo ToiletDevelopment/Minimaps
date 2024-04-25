@@ -23,6 +23,7 @@ import com.jnngl.mapcolor.palette.Palette;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.util.concurrent.CompletableFuture;
 
 public record MinimapIcon(String key, byte[] data, int width, int height) {
 
@@ -46,5 +47,9 @@ public record MinimapIcon(String key, byte[] data, int width, int height) {
     ColorMatcher matcher = COLOR_MATCHER.get();
     byte[] data = matcher.matchImage(image);
     return new MinimapIcon(key, data, image.getWidth(), image.getHeight());
+  }
+
+  public static CompletableFuture<MinimapIcon> fromBufferedImageFuture(String key, CompletableFuture<BufferedImage> imageFuture) {
+    return imageFuture.thenApply(image -> fromBufferedImage(key, image));
   }
 }

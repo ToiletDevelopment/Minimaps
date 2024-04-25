@@ -28,6 +28,7 @@ import com.jnngl.vanillaminimaps.map.MinimapLayer;
 import com.jnngl.vanillaminimaps.map.SecondaryMinimapLayer;
 import com.jnngl.vanillaminimaps.map.fullscreen.FullscreenMinimap;
 import com.jnngl.vanillaminimaps.map.icon.MinimapIcon;
+import com.jnngl.vanillaminimaps.map.icon.PlayerSkinIcon;
 import com.jnngl.vanillaminimaps.map.marker.MarkerMinimapLayer;
 import com.jnngl.vanillaminimaps.map.renderer.MinimapLayerRenderer;
 import com.jnngl.vanillaminimaps.map.renderer.world.WorldMinimapRenderer;
@@ -67,6 +68,7 @@ public class MinimapListener implements Listener {
 
   @EventHandler
   public void onJoin(PlayerJoinEvent event) {
+    PlayerSkinIcon.reloadImage(event.getPlayer());
     Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, () -> {
       try {
         plugin.playerDataStorage().restore(plugin, event.getPlayer());

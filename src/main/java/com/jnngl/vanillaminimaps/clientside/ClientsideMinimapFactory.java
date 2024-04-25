@@ -19,9 +19,9 @@ package com.jnngl.vanillaminimaps.clientside;
 
 import com.jnngl.vanillaminimaps.map.Minimap;
 import com.jnngl.vanillaminimaps.map.MinimapLayer;
-import com.jnngl.vanillaminimaps.map.MinimapScreenPosition;
 import com.jnngl.vanillaminimaps.map.SecondaryMinimapLayer;
 import com.jnngl.vanillaminimaps.map.renderer.MinimapLayerRenderer;
+import com.maximde.minimapapi.MinimapScreenPosition;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 

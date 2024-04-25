@@ -17,7 +17,8 @@
 
 package com.jnngl.vanillaminimaps.config;
 
-import com.jnngl.vanillaminimaps.map.MinimapScreenPosition;
+
+import com.maximde.minimapapi.MinimapScreenPosition;
 import net.elytrium.serializer.annotations.Comment;
 import net.elytrium.serializer.annotations.CommentValue;
 import net.elytrium.serializer.annotations.NewLine;

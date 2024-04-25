@@ -18,8 +18,8 @@
 package com.jnngl.vanillaminimaps.map.renderer.encoder;
 
 import com.jnngl.vanillaminimaps.map.Minimap;
-import com.jnngl.vanillaminimaps.map.MinimapLayer;
-import com.jnngl.vanillaminimaps.map.MinimapScreenPosition;
+
+import com.maximde.minimapapi.MinimapScreenPosition;
 import org.bukkit.Location;
 import org.bukkit.util.Vector;
 

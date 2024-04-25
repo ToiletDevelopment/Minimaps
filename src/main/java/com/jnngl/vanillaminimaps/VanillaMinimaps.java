@@ -31,21 +31,34 @@ import com.jnngl.vanillaminimaps.injection.PassengerRewriter;
 import com.jnngl.vanillaminimaps.listener.MinimapBlockListener;
 import com.jnngl.vanillaminimaps.listener.MinimapListener;
 import com.jnngl.vanillaminimaps.map.Minimap;
+import com.jnngl.vanillaminimaps.map.MinimapLayer;
 import com.jnngl.vanillaminimaps.map.MinimapProvider;
+import com.jnngl.vanillaminimaps.map.SecondaryMinimapLayer;
 import com.jnngl.vanillaminimaps.map.fullscreen.FullscreenMinimap;
+import com.jnngl.vanillaminimaps.map.icon.MinimapIcon;
+import com.jnngl.vanillaminimaps.map.icon.PlayerSkinIcon;
 import com.jnngl.vanillaminimaps.map.icon.provider.BuiltinMinimapIconProvider;
 import com.jnngl.vanillaminimaps.map.icon.provider.MinimapIconProvider;
+import com.jnngl.vanillaminimaps.map.marker.MarkerMinimapLayer;
+import com.jnngl.vanillaminimaps.map.renderer.MinimapIconRenderer;
 import com.jnngl.vanillaminimaps.map.renderer.world.WorldMinimapRenderer;
 import com.jnngl.vanillaminimaps.map.renderer.world.cache.CacheableWorldMinimapRenderer;
 import com.jnngl.vanillaminimaps.map.renderer.world.provider.BuiltinMinimapWorldRendererProvider;
 import com.jnngl.vanillaminimaps.map.renderer.world.provider.MinimapWorldRendererProvider;
 import com.jnngl.vanillaminimaps.storage.MinimapPlayerDatabase;
+import com.maximde.minimapapi.MinimapAPI;
+import com.maximde.minimapapi.MinimapActions;
+import com.maximde.minimapapi.MinimapScreenPosition;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.exceptions.CommandExceptionType;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import lombok.Getter;
 import lombok.SneakyThrows;
-import org.bstats.bukkit.Metrics;
-import org.bstats.charts.SimplePie;
+import net.minecraft.server.level.ServerPlayer;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.craftbukkit.v1_20_R3.entity.CraftPlayer;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -53,14 +66,17 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
+import java.sql.SQLException;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
+import java.util.logging.Level;
 
 public final class VanillaMinimaps extends JavaPlugin implements MinimapProvider, Listener {
 
@@ -100,6 +116,8 @@ public final class VanillaMinimaps extends JavaPlugin implements MinimapProvider
   @MonotonicNonNull
   private MinimapPlayerDatabase playerDataStorage;
 
+  private HashMap<Player, List<LivingEntity>> targetList = new HashMap<>();
+
   @Override
   @SneakyThrows
   public void onEnable() {
@@ -110,10 +128,6 @@ public final class VanillaMinimaps extends JavaPlugin implements MinimapProvider
     Config.instance().reload(dataPath.resolve("config.yml"));
     BlockConfig.instance().reload(dataPath.resolve("blocks.yml"));
 
-    Metrics metrics = new Metrics(this, 20833);
-    metrics.addCustomChart(new SimplePie("minimap_renderer", () -> Config.instance().defaultMinimapRenderer));
-    metrics.addCustomChart(new SimplePie("default_position", () -> Config.instance().defaultPosition.toString().toLowerCase(Locale.ROOT)));
-    metrics.addCustomChart(new SimplePie("enabled_by_default", () -> String.valueOf(Config.instance().enabledByDefault)));
 
     Path iconsPath = dataPath.resolve("icons");
     Files.createDirectories(iconsPath);
@@ -142,6 +156,178 @@ public final class VanillaMinimaps extends JavaPlugin implements MinimapProvider
     minimapBlockListener.registerListener(this);
 
     new MinimapCommand(this).register(NMSCommandDispatcherAccessor.vanillaDispatcher());
+
+    MinimapAPI.setAPI(new MinimapActions() {
+      @Override
+      public void enableMinimap(Player player) {
+        try {
+          playerDataStorage().enableMinimap(player);
+          playerDataStorage().restore(get(), player);
+        } catch (Exception e) {
+          e.printStackTrace();
+        }
+      }
+
+      @Override
+      public void disableMinimap(Player player) {
+        minimapListener().disableMinimap(player);
+
+        try {
+          playerDataStorage().disableMinimap(player);
+        } catch (SQLException e) {
+          e.printStackTrace();
+        }
+      }
+
+      @Override
+      public boolean isMinimap(Player player) {
+        return false;
+      }
+
+      @Override
+      public void setPosition(Player player, MinimapScreenPosition minimapScreenPosition) {
+        Minimap minimap = getPlayerMinimap(player);
+        if (minimap == null) {
+          getLogger().log(Level.WARNING, "Minimap is disabled. Tried to change position for player " + player.getName());
+          return;
+        }
+
+        minimap.screenPosition(minimapScreenPosition);
+        minimap.update(get());
+        save(minimap);
+      }
+
+      @Override
+      public void addMarker(Player player, String markerName, String iconName, Location location) {
+        Minimap minimap = getPlayerMinimap(player);
+        if (minimap == null) {
+          getLogger().log(Level.WARNING, "Minimap is disabled. Tried to add marker for player " + player.getName());
+          return;
+        }
+
+        MinimapIcon icon = minimapIcon(iconName);
+
+
+        if (minimap.secondaryLayers().containsKey(markerName)) {
+          getLogger().log(Level.WARNING, "Marker with this name already exists.");
+          return;
+        }
+
+        int markers = (int) minimap.secondaryLayers().entrySet().stream()
+                .filter(entry -> !"player".equals(entry.getKey())
+                        && !"death_point".equals(entry.getKey())
+                        && entry.getValue() instanceof MarkerMinimapLayer)
+                .count();
+
+
+        float depth = 0.05F + minimap.secondaryLayers().size() * 0.01F;
+        MinimapLayer iconBaseLayer = clientsideMinimapFactory().createMinimapLayer(player.getWorld(), null);
+        SecondaryMinimapLayer iconLayer = new MarkerMinimapLayer(iconBaseLayer, new MinimapIconRenderer(icon), true,
+                Config.instance().markers.customMarkers.stickToBorder, player.getWorld(), (int) location.getX(), (int) location.getZ(), depth);
+        minimap.secondaryLayers().put(markerName, iconLayer);
+
+        packetSender().spawnLayer(player, iconBaseLayer);
+        minimap.update(get());
+        save(minimap);
+      }
+
+      @Override
+      public void followEntity(Player player, LivingEntity target) {
+        Minimap minimap = getPlayerMinimap(player);
+
+        if (minimap == null) {
+          getLogger().log(Level.WARNING, "Minimap is disabled. Tried to add marker for player " + player.getName());
+          return;
+        }
+
+        if(!(target instanceof Player targetPlayer)) return;
+        MinimapIcon icon = MinimapIcon.fromBufferedImage("follow" + target.getEntityId(), PlayerSkinIcon.getPlayerImageFor(targetPlayer));
+        if(!iconProvider().allKeys().contains("follow" + target.getEntityId())) iconProvider().registerIcon("follow" + target.getEntityId(), icon);
+
+        if (minimap.secondaryLayers().containsKey("follow" + target.getEntityId())) {
+          getLogger().log(Level.WARNING, "Marker with this name already exists.");
+          return;
+        }
+
+        float depth = 0.05F + minimap.secondaryLayers().size() * 0.01F;
+        MinimapLayer iconBaseLayer = clientsideMinimapFactory().createMinimapLayer(player.getWorld(), null);
+        SecondaryMinimapLayer iconLayer = new MarkerMinimapLayer(iconBaseLayer, new MinimapIconRenderer(icon), true, Config.instance().markers.customMarkers.stickToBorder, player.getWorld(), (int) target.getX(), (int) target.getZ(), depth);
+        minimap.secondaryLayers().put("follow" + target.getEntityId(), iconLayer);
+        packetSender().spawnLayer(player, iconBaseLayer);
+        minimap.update(get());
+        save(minimap);
+
+        List<LivingEntity> list = new ArrayList<>();
+        if(targetList.containsKey(player)) list.addAll(targetList.get(player));
+        list.add(target);
+        targetList.put(player, list);
+      }
+
+      @Override
+      public void unfollowEntity(Player player, LivingEntity target) {
+        List<LivingEntity> list = new ArrayList<>();
+        if(targetList.containsKey(player)) list.addAll(targetList.get(player));
+        list.remove(target);
+        targetList.put(player, list);
+      }
+
+    });
+
+    getServer().getScheduler().runTaskTimer(get(), task -> {
+      updateFollowedEntities();
+    }, 50, 5);
+
+  }
+
+
+  private void updateFollowedEntities() {
+    targetList.forEach((player, livingEntities) -> {
+      Minimap minimap = getPlayerMinimap(player);
+      livingEntities.forEach(livingEntity -> {
+        MinimapIcon icon = minimapIcon("follow" + livingEntity.getEntityId());
+        try {
+          modifyMarker(player, "follow" + livingEntity.getEntityId(), (m, marker) -> {
+                    marker.setPositionX((int) livingEntity.getLocation().getX());
+                    marker.setPositionZ((int) livingEntity.getLocation().getZ());
+                  }
+          );
+        } catch (CommandSyntaxException e) {
+          throw new RuntimeException(e);
+        }
+      });
+    });
+  }
+
+  private void modifyMarker(Player player, String markerName, BiConsumer<Minimap, SecondaryMinimapLayer> consumer) throws CommandSyntaxException {
+    Minimap minimap = getPlayerMinimap(player);
+    SecondaryMinimapLayer marker = minimap.secondaryLayers().get(markerName);
+    if (marker == null) {
+      return;
+    }
+    consumer.accept(minimap, marker);
+    minimap.update(get());
+    save(minimap);
+  }
+
+  private MinimapIcon minimapIcon(String iconName) {
+    MinimapIcon icon = null;
+    if (!iconProvider().specialIconKeys().contains(iconName)) {
+      icon = iconProvider().getIcon(iconName);
+    }
+
+    if (icon == null) {
+      throw new NullPointerException("Invalid icon: " + iconName);
+    }
+
+    return icon;
+  }
+
+  private void save(Minimap minimap) {
+    try {
+      playerDataStorage().save(minimap);
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
   }
 
   @Override

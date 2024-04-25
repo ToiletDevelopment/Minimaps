@@ -1,6 +1,3 @@
-// Vanilla Minimaps
-// https://github.com/JNNGL/VanillaMinimaps
-
 #version 150
 
 #moj_import <fog.glsl>

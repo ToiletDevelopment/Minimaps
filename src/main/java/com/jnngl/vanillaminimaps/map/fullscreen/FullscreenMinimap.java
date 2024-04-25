@@ -95,7 +95,7 @@ public class FullscreenMinimap {
           transitionFuture.complete(null);
         }
       }
-    }, 0L, 1L);
+    }, 0L, 20L * 10);
 
     return transitionFuture.whenComplete((v, t) -> task.cancel());
   }

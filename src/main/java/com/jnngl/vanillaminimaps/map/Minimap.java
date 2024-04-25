@@ -27,6 +27,7 @@ import com.jnngl.vanillaminimaps.map.renderer.encoder.PrimaryMapEncoder;
 import com.jnngl.vanillaminimaps.map.renderer.encoder.SecondaryMapEncoder;
 import com.jnngl.vanillaminimaps.map.renderer.world.cache.CacheableWorldMinimapRenderer;
 import com.jnngl.vanillaminimaps.map.renderer.world.cache.WorldMapCache;
+import com.maximde.minimapapi.MinimapScreenPosition;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
